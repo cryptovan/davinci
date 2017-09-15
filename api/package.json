@@ -1,0 +1,23 @@
+{
+  "name": "davinci-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "start:dev": "nodemon app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "cryptovan",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.15.4",
+    "morgan": "^1.8.2",
+    "pg": "6.4.1",
+    "pg-hstore": "^2.3.2",
+    "sequelize": "^4.8.3",
+    "socket.io": "^2.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^1.12.0"
+  }
+}
