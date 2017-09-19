@@ -20,6 +20,7 @@ Packages:
   - run: ```npm install```
 
 Database setup:
+  - run postgresql server (OSX: ```brew services start postgres```)
   - open postgresql console using ```psql postgres```
   - Create a user: ```CREATE ROLE cryptovan WITH LOGIN PASSWORD 'your_password' CREATEDB SUPERUSER;```
   - Create the development database: ```craete database davinci_development;```
