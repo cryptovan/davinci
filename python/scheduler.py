@@ -5,6 +5,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import seaborn as sns
+import psycopg2 as pg
+import pandas.io.sql as psql
+import sqlalchemy
+
+
+
 volumes = []
 prices = []
 # graph type
@@ -14,6 +20,19 @@ pd.set_option('display.height', 1000)
 pd.set_option('display.max_rows', 500)
 pd.set_option('display.max_columns', 500)
 pd.set_option('display.width', 1000)
+db_location = 'local' # db location
+if (db_location == 'local'): # connects to local db or remote one on heroku
+	user = "cryptovan"
+	password="cryptoftw#421"
+	db="davinci_development"
+	host = 'localhost'
+	port = 5432
+else:
+	user="aqhgnocrccmwgg"
+	password="fa198151f144ec06d5e2a58411db39dc55a0345cf642a2a11ebe81b464967e14"
+	db="dab80rgl8696qb"
+	host="ec2-54-225-88-191.compute-1.amazonaws.com"
+	port="5432"
 
 def new_markets(daysback=120):
 	bittrex = Bittrex(None, None)
@@ -181,14 +200,90 @@ def markets_correlation():
 		# print(corr_df)
 		# plt.matshow(corr_df)
 		sns.heatmap(corr_df, # display correlation table
-	            xticklabels=corr_df.columns.values,
-	            yticklabels=corr_df.columns.values)
+				xticklabels=corr_df.columns.values,
+				yticklabels=corr_df.columns.values)
 		plt.subplots_adjust(bottom=0.2,top=0.9, left=0.14)
 		plt.show()
 	else:
 		print('Dataframe is empty')
 
-def scheduler(t=60,n=3,vol_in_btc=2):
+def print_tables():
+	con, meta = db_connect()
+	# print(meta)
+	# print(meta.tables)
+	print("Current tables stored on the db ...")
+	for table in meta.tables:
+		print(table)
+	# results = meta.tables['ExchangeData']
+	# print(results)
+	# for col in results.c:
+		# print(col)
+
+def print_rows(table_name='BTC-1ST'):
+	con, meta = db_connect()
+	print("Row stored on table ...")
+	results = meta.tables[table_name]
+	print(results)
+	df = pd.read_sql_table(table_name, con)
+	print(df.tail())
+
+def clear_db():
+	con, meta = db_connect()
+	print('Deleting all tables ...')
+	# for table in meta.tables:
+		# con.execute(table.delete())
+	for tbl in (meta.tables):
+		# con.execute(meta.tables[tbl].delete())
+		meta.tables[tbl].drop()
+		# print(type(meta.tables[tbl]))
+		# print(tbl)
+
+def scheduler(t=60, n=3, vol_in_btc=2):
+	# t = 10 is the time interval between queries (in seconds)
+	# n = 3 is the number of time steps to look back
+	# vol_in_btc = 7 is the threshold above which the alert will be triggered
+	volume_alert_ratio = 1.05
+	x = 3 # limit the market search to x, for debugging purposes
+	dataLabels = ['TimeStamp','High','Low','Volume','BaseVolume','Bid','Ask','Last','OpenBuyOrders','OpenSellOrders','PrevDay']
+
+	print("Monitoring Started ...")
+
+	# connect to db 
+	con, meta = db_connect() # connect to localhost db
+	
+	# collet all markets
+	marketsList = get_markets()
+
+	try: 
+		# while True:
+		nn = 0
+		while (nn<2):
+			for market in marketsList[:x]: #traverse the markets 
+
+				# filename = market+'.csv'
+				table_name = market
+				try:
+					marketData = get_market_data(market,dataLabels) # returns a dictionary with data for each label
+					# print(marketData)
+					# df = get_df_from_csv(path, dataLabels) # check if a .csv exists (or creates it) and return a df
+					new_row = pd.DataFrame([marketData]) # create df with new row 
+					print(new_row)
+					# new_row = df.append(newdata)
+					# df.to_csv(path, index=False) # write out to csv
+
+					# open db table -> if doesn't exits create a new one, otherwise append
+					new_row.to_sql(table_name, con, if_exists='append') # append data on the table with current df
+
+					nn = nn + 1
+				except IOError: # in case the api connection to bittrex drops, will pass to the next cycle
+					pass	
+		time.sleep(t)
+		print('Done.')
+	except KeyboardInterrupt:
+		print('interrupted!')
+
+
+def scheduler_old(t=60,n=3,vol_in_btc=2):
 	# t = 10 is the time interval between queries (in seconds)
 	# n = 3 is the number of time steps to look back
 	# vol_in_btc = 7 is the threshold above which the alert will be triggered
@@ -211,13 +306,8 @@ def scheduler(t=60,n=3,vol_in_btc=2):
 				try:
 					marketData = get_market_data(market,dataLabels) # returns a dictionary with data for each label
 
-					# new_date = datetime.now()
-					# new_volume = get_market_volume(market)
-					# new_buy_orders = get_buy_orders(market)
-					# new_sell_orders = get_sell_orders(market)
-					# new_last_price = get_last_price(market)
-					
-					df = get_df_from_csv(path, dataLabels) # check if a .csv exists (or creates it) and return a df				
+					df = get_df_from_csv(path, dataLabels) # check if a .csv exists (or creates it) and return a df
+
 					newdata = pd.DataFrame([marketData]) # append new data to df
 					df = df.append(newdata)
 					df.to_csv(path, index=False) # write out to csv
@@ -329,24 +419,60 @@ def plot():
 	plt.plot([1,2,3],[4,7,4])
 	plt.show()
 
+def json_test():
+	df = pd.read_json('package.json')
+	print(df)
+
+def db_connect():
+	'''Returns a connection and a metadata object'''
+	# We connect with the help of the PostgreSQL URL
+	# postgresql://federer:grandestslam@localhost:5432/tennis
+		
+	url = 'postgresql://{}:{}@{}:{}/{}'
+	url = url.format(user, password, host, port, db) # fetch these variable from globals
+
+	# The return value of create_engine() is our connection object
+	con = sqlalchemy.create_engine(url, client_encoding='utf8') # normal connection withouth SSL
+	# con = sqlalchemy.create_engine(url, connect_args={'sslmode':'require'}, client_encoding='utf8') # this is for heroku
+
+	# We then bind the connection to MetaData()
+	meta = sqlalchemy.MetaData(bind=con, reflect=True)
+
+	return con, meta
+
 if __name__ == '__main__':
-	# new_markets()
-	# currency_price()
-	# get_markets()
-	# get_ticker()
-	# get_market_volume()
-	# write_to_log('something')
+
+	# print_tables()
+	print_rows()
+	# clear_db()
 	# scheduler()
-	#
-	# dataLabels = ['TimeStamp','High','Low','Volume','BaseVolume','Bid','Ask','Last','OpenBuyOrders','OpenSellOrders','PrevDay']
-	# get_market_data('BTC-LTC',dataLabels)
+		
+	# add new data to df
+	# new_data = {'id':'2','exchange':'BTC-USD', 'ask':'0.32', 'base_volume':'1000', 'bid':'0.35', 'high':'0.6', 'low':'0.2', 'last':'0.33', 'pair':'BTC-USD', 'open_orders':'1000', 'prev_day_price':'0.2', 'volume':'13123', 'createdAt':'2017-10-13', 'updatedAt':'2017-10-20'}
+	# new_row = pd.DataFrame([new_data]) # append new data to df
+	# data = data.append(new_row)
+	# print(data)
+	
+	# new_row.to_sql('ExchangeData', con, if_exists='append') # append data on the table with current df
 
-	# correlation
-	# df = pd.read_csv('data/BTC-ETH.csv')
-	# df_init(df)
+	# data2 = pd.read_sql_table('ExchangeData', con) # ExchangeData should be replaced by the coin-table
+	# print(data2)
 
-	markets_correlation()
+
+	# print(meta)
+	# print(meta.tables)
+	# for table in meta.tables:
+		# print(table)
+	# results = meta.tables['ExchangeData']
+	# print(results)
+	# for col in results.c:
+		# print(col)
+
 	# plot()
 	# write_to_log()
 	# print(average([1,2,3,4,5],4))
 	# plot()
+
+
+	"""[diego@Diegos-MacBook-Pro ~/Git/davinci/api]$ psql -U cryptovan davinci_development"""
+
